@@ -1,0 +1,64 @@
+#!/usr/bin/env sh
+# lightswitch - Switch parser generator for POSIX-compatible shells.
+# Distributed under the MIT license. | https://github.com/knuxify/lightswitch
+
+# Colors
+e="\033[1;31m"
+d="\033[1;37m"
+b="\033[1m"
+r="\033[0m"
+
+# Fail function
+flop() {
+	echo -e "$*"
+	exit 1
+}
+
+# Initial checks
+[ "$*" ] || flop "${e}No configuration file provided!${r} Usage: $0 <configfile>"
+[ -e "$*" ] || flop "${e}Provided configuration file does not exist!${r} Usage: $0 <configfile>"
+
+# Script parser
+lineno=0
+output='for arg in $*; do
+	argno=$((argno + 1))
+	case arg in'
+while read -re line; do
+	# Bump line number
+	lineno=$((lineno + 1))
+	# Check if the line is empty or a comment; if so, ignore it
+	[ "$line" ] || continue
+	[ "${line#\#}" != "${line}" ] && continue
+	# Assign each part of the line to singular variables.
+	switches=$(echo "$line" | sed -e 's/:.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+	description=$(echo "$line" | sed -e 's/.*://' -e 's/>.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+	outputvar=$(echo "$line" | sed -e 's/.*>//' -e 's/<.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+	inputtype=$([ "${line#*\<}" != "${line}" ] && echo "$line" | sed -e 's/.*<//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+	[[ "$inputtype" ]] || inputtype="default"
+	if [ "${switches#*\|}" = "${switches}" ] && set switchesnotrailing=$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//') && [ "${switchesnotrailing#*\ }" != "$switchesnotrailing" ]; then
+		echo -e "${e}Parser error at line ${d}$lineno${r}:\n  Switches contain spaces. If you want to use multiple switches, separate them with the ${b}|${r} character."
+	fi
+	# Turn this into a part of a case statement
+	echo -e "${d}$lineno${r} $switches with description $description outputting to variable $outputvar taking input of type $inputtype"
+	if [ "${switches#*-*}" != "${switches}" ]; then
+		case $inputtype in
+			default) output="$output\n\
+		$switches) $outputvar=1;;";;
+			file) output="$output\n\
+		$switches) if [ -e  ]; then $outputvar=1;;";;
+		esac
+	else
+		case $inputtype in
+			default) output="$output\n\
+		*) $outputvar=\$arg;;";;
+			file) output="$output\n\
+		*) if [ -e \"\$arg\" ]; then $outputvar=\$arg;;";;
+			directory) output="$output\n\
+		*) if [ -d \"\$arg\" ]; then $outputvar=\$arg;;";;
+		esac
+	fi
+done < "$*"
+output="$output\n\
+	esac\n\
+done"
+echo -e "$output"
