@@ -20,6 +20,7 @@ flop() {
 
 # Script parser
 lineno=0
+errors=0
 output='for arg in $*; do
 	argno=$((argno + 1))
 	case arg in'
@@ -34,19 +35,33 @@ while read -re line; do
 	description=$(echo "$line" | sed -e 's/.*://' -e 's/>.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 	outputvar=$(echo "$line" | sed -e 's/.*>//' -e 's/<.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 	inputtype=$([ "${line#*\<}" != "${line}" ] && echo "$line" | sed -e 's/.*<//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-	[[ "$inputtype" ]] || inputtype="default"
+	[ "$inputtype" ] || inputtype="default"
 	if [ "${switches#*\|}" = "${switches}" ] && set switchesnotrailing=$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//') && [ "${switchesnotrailing#*\ }" != "$switchesnotrailing" ]; then
-		echo -e "${e}Parser error at line ${d}$lineno${r}:\n  Switches contain spaces. If you want to use multiple switches, separate them with the ${b}|${r} character."
+		echo -e "${e}Parser error at line ${d}$lineno${r}:\n  Switches contain spaces. If you want to use multiple switches, separate them with the ${b}|${r} character. Skipping..."
+		errors=$((errors + 1))
+		continue
 	fi
+	#TODO: IF SWITCH DOESNT CONTAIN = AND IS OF INTYPE FILE DIRECTORY FLOP
 	# Turn this into a part of a case statement
 	echo -e "${d}$lineno${r} $switches with description $description outputting to variable $outputvar taking input of type $inputtype"
 	if [ "${switches#*-*}" != "${switches}" ]; then
-		case $inputtype in
-			default) output="$output\n\
+		if [ "${switches#*=*}" != "${switches}" ]; then
+			case $inputtype in
+				default) output="$output\n\
+		$switches) $outputvar=\$(echo \$arg | sed -e 's/.*=//');;";;
+				file) output="$output\n\
+		$switches) if [ -e \$(echo \$arg | sed -e 's/.*=//') ]; then $outputvar=\$(echo \$arg | sed -e 's/.*=//');;";;
+			esac
+		elif [ "$inputtype" != "default" ]; then
+			echo -e "${e}Parser error at line ${d}$lineno${r}:\n  Switch has the input type set to file/directory, but there's no way to pass the required file because there's no = sign. Skipping..."
+			errors=$((errors + 1))
+			continue
+		else
+			case $inputtype in
+				default) output="$output\n\
 		$switches) $outputvar=1;;";;
-			file) output="$output\n\
-		$switches) if [ -e  ]; then $outputvar=1;;";;
-		esac
+			esac
+		fi
 	else
 		case $inputtype in
 			default) output="$output\n\
@@ -61,4 +76,10 @@ done < "$*"
 output="$output\n\
 	esac\n\
 done"
-echo -e "$output"
+if [ $errors -gt 0 ]; then
+	echo -e "${e}Command finished with errors.${r} Parser errors can be seen above this message."
+	exit 1
+else
+	echo -e "$output"
+	exit 0
+fi
